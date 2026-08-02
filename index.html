@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trigger box rendering — before / after</title>
+<style>
+  :root{ --bg:#12160f; --panel:#1b211d; --ink:#d7dcd2; --mute:#7f8a7c; --hot:#8dffae; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+       padding:32px 20px 64px}
+  main{max-width:1020px;margin:0 auto}
+  h1{font-size:19px;font-weight:500;letter-spacing:.02em;margin:0 0 4px}
+  .sub{color:var(--mute);font-size:13px;margin:0 0 28px;max-width:62ch}
+  .heads{display:flex;gap:10px;margin-bottom:6px}
+  .heads div{flex:1;font-size:12px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+  .stage{display:flex;gap:10px}
+  .half{flex:1;min-width:0;position:relative;border-radius:10px;overflow:hidden;
+        border:1px solid #2b332b}
+  canvas{width:100%;height:340px;display:block}
+  .xh{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:none}
+  .xh i{position:absolute;background:#eafff0;opacity:.8}
+  .xh i:nth-child(1){left:10px;top:0;width:2px;height:7px}
+  .xh i:nth-child(2){left:10px;bottom:0;width:2px;height:7px}
+  .xh i:nth-child(3){top:10px;left:0;height:2px;width:7px}
+  .xh i:nth-child(4){top:10px;right:0;height:2px;width:7px}
+  #lbl{position:absolute;transform:translate(-50%,-100%);pointer-events:none;display:none;
+       font-size:11px;line-height:1.4;color:#c8ffd8;background:rgba(8,14,10,.78);
+       border:1px solid rgba(141,255,174,.35);border-radius:3px;padding:2px 6px;white-space:nowrap}
+  #tick{position:absolute;width:1px;height:14px;background:var(--hot);opacity:.7;pointer-events:none;display:none}
+  .ctl{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-size:13px;color:var(--mute)}
+  .ctl label{display:flex;gap:7px;align-items:center;cursor:pointer}
+  .ctl input{accent-color:#3be05a}
+  footer{margin-top:36px;font-size:12px;color:var(--mute);max-width:62ch}
+  @media (max-width:720px){ .stage,.heads{flex-direction:column} canvas{height:260px} }
+</style>
+</head>
+<body>
+<main>
+  <h1>Trigger box rendering</h1>
+  <p class="sub">Left: every edge drawn at uniform weight, always on top — the usual debug overlay.
+     Right: corner brackets, a dim ghost pass for occluded edges, face fill, distance fade,
+     and a crosshair that focuses the nearest box and labels it.</p>
+
+  <div class="heads"><div>before</div><div>after</div></div>
+  <div class="stage">
+    <div class="half"><canvas id="ca"></canvas></div>
+    <div class="half">
+      <canvas id="cb"></canvas>
+      <div id="tick"></div>
+      <div id="lbl"></div>
+      <div class="xh"><i></i><i></i><i></i><i></i></div>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <label><input type="checkbox" id="t5" checked>Focus crosshair</label>
+    <label><input type="checkbox" id="t1" checked>Corner brackets</label>
+    <label><input type="checkbox" id="t2" checked>Depth-aware</label>
+    <label><input type="checkbox" id="t3" checked>Face fill</label>
+    <label><input type="checkbox" id="t4" checked>Distance fade</label>
+  </div>
+
+  <footer>Line width is faked here — WebGL ignores linewidth, so the dark outline pass
+    needs Line2 or a screen-space quad shader. In a native renderer it's free.</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+var GREEN=0x3be05a, HOT=0xb6ffcd, DIM=0x2f7a4a;
+var CG=new THREE.Color(GREEN), CH=new THREE.Color(HOT);
+var ca=document.getElementById('ca'), cb=document.getElementById('cb');
+var lbl=document.getElementById('lbl'), tick=document.getElementById('tick');
+var ra=new THREE.WebGLRenderer({canvas:ca,antialias:true});
+var rb=new THREE.WebGLRenderer({canvas:cb,antialias:true});
+[ra,rb].forEach(function(r){r.setPixelRatio(Math.min(2,devicePixelRatio));r.setClearColor(0x1b211d,1);});
+var sa=new THREE.Scene(), sb=new THREE.Scene();
+var cam=new THREE.PerspectiveCamera(52,1,0.5,300);
+
+var tg=new THREE.PlaneGeometry(90,90,56,56); tg.rotateX(-Math.PI/2);
+var p=tg.attributes.position, col=[];
+var lo=new THREE.Color(0x232b26), hi=new THREE.Color(0x4d5a44), c=new THREE.Color();
+for(var i=0;i<p.count;i++){
+  var x=p.getX(i), z=p.getZ(i);
+  var h=3.4*Math.sin(x*0.15)*Math.cos(z*0.12)+1.7*Math.sin(x*0.29+1.2)+1.3*Math.cos(z*0.25);
+  p.setY(i,h);
+  c.copy(lo).lerp(hi,Math.max(0,Math.min(1,(h+5)/10)));
+  col.push(c.r,c.g,c.b);
+}
+tg.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+var tm=new THREE.MeshBasicMaterial({vertexColors:true});
+sa.add(new THREE.Mesh(tg,tm)); sb.add(new THREE.Mesh(tg,tm));
+
+var seed=13; function rnd(){seed=(seed*16807)%2147483647;return seed/2147483647;}
+var boxes=[];
+for(var b=0;b<18;b++){
+  boxes.push({x:(rnd()-0.5)*26,y:1+rnd()*7,z:(rnd()-0.5)*26,w:2+rnd()*5,h:2+rnd()*4.5,d:2+rnd()*5});
+}
+
+function brackets(w,h,d,f){
+  var hx=w/2,hy=h/2,hz=d/2,v=[];
+  for(var sx=-1;sx<=1;sx+=2)for(var sy=-1;sy<=1;sy+=2)for(var sz=-1;sz<=1;sz+=2){
+    var cx=sx*hx,cy=sy*hy,cz=sz*hz;
+    v.push(cx,cy,cz, cx-sx*w*f,cy,cz);
+    v.push(cx,cy,cz, cx,cy-sy*h*f,cz);
+    v.push(cx,cy,cz, cx,cy,cz-sz*d*f);
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
+  return g;
+}
+
+var beforeMat=new THREE.LineBasicMaterial({color:GREEN,depthTest:false});
+var rights=[], picks=[];
+boxes.forEach(function(o,idx){
+  var bg=new THREE.BoxGeometry(o.w,o.h,o.d);
+  var la=new THREE.LineSegments(new THREE.EdgesGeometry(bg),beforeMat);
+  la.position.set(o.x,o.y,o.z); la.renderOrder=2; sa.add(la);
+
+  var full=new THREE.EdgesGeometry(bg), br=brackets(o.w,o.h,o.d,0.16);
+  var mv=new THREE.LineBasicMaterial({color:GREEN,transparent:true,opacity:1,depthFunc:THREE.LessEqualDepth});
+  var mo=new THREE.LineBasicMaterial({color:DIM,transparent:true,opacity:0.22,depthFunc:THREE.GreaterDepth,depthWrite:false});
+  var mf=new THREE.MeshBasicMaterial({color:GREEN,transparent:true,opacity:0.07,depthWrite:false});
+  var vis=new THREE.LineSegments(br,mv), occ=new THREE.LineSegments(br,mo), fill=new THREE.Mesh(bg,mf);
+  [vis,occ,fill].forEach(function(m){m.position.set(o.x,o.y,o.z);sb.add(m);});
+  fill.renderOrder=1; occ.renderOrder=2; vis.renderOrder=3;
+  var pick=new THREE.Mesh(bg,mf);
+  pick.position.set(o.x,o.y,o.z); pick.updateMatrixWorld(true); pick.userData.i=idx;
+  picks.push(pick);
+  rights.push({vis:vis,occ:occ,fill:fill,mv:mv,mo:mo,mf:mf,full:full,br:br,pos:vis.position,top:o.h/2,k:0});
+});
+
+var T={t1:true,t2:true,t3:true,t4:true,t5:true};
+function applyDepth(){
+  rights.forEach(function(r){ r.mv.depthTest=T.t2; r.mf.depthTest=T.t2; r.occ.visible=T.t2; });
+}
+['t1','t2','t3','t4','t5'].forEach(function(id){
+  document.getElementById(id).addEventListener('change',function(e){
+    T[id]=e.target.checked;
+    if(id==='t2')applyDepth();
+    if(id==='t3')rights.forEach(function(r){r.fill.visible=T.t3;});
+  });
+});
+applyDepth();
+
+var ray=new THREE.Raycaster(), ctr=new THREE.Vector2(0,0);
+var fwd=new THREE.Vector3(), toBox=new THREE.Vector3(), proj=new THREE.Vector3();
+var focus=-1, cand=-1, candN=0;
+
+function size(){
+  var w=ca.clientWidth||1, h=ca.clientHeight||340;
+  ra.setSize(w,h,false); rb.setSize(cb.clientWidth||1,cb.clientHeight||h,false);
+  cam.aspect=w/h; cam.updateProjectionMatrix();
+}
+addEventListener('resize',size); size();
+
+var a=0;
+function loop(){
+  a+=0.0022;
+  cam.position.set(Math.sin(a)*34,17,Math.cos(a)*34);
+  cam.lookAt(0,3,0); cam.updateMatrixWorld();
+
+  var want=-1;
+  if(T.t5){
+    ray.setFromCamera(ctr,cam);
+    var hit=ray.intersectObjects(picks,false);
+    if(hit.length) want=hit[0].object.userData.i;
+    else{
+      cam.getWorldDirection(fwd);
+      var best=0.982;
+      picks.forEach(function(m){
+        toBox.copy(m.position).sub(cam.position).normalize();
+        var dot=toBox.dot(fwd);
+        if(dot>best){best=dot;want=m.userData.i;}
+      });
+    }
+  }
+  if(want===cand){candN++;}else{cand=want;candN=1;}
+  if(candN>=4&&focus!==cand)focus=cand;
+
+  rights.forEach(function(r,i){
+    var f=1;
+    if(T.t4){
+      var d=r.pos.distanceTo(cam.position);
+      f=Math.max(0.32,Math.min(1,1-(d-22)/30));
+    }
+    r.k += (((i===focus)?1:0)-r.k)*0.14;
+    var fe=f+(1-f)*r.k;
+    var g=(T.t1&&r.k<0.5)?r.br:r.full;
+    if(r.vis.geometry!==g){r.vis.geometry=g;r.occ.geometry=g;}
+    var base=(focus<0)?1:0.5, m=base+(1-base)*r.k;
+    r.mv.opacity=fe*m;
+    r.mo.opacity=fe*0.22*m+0.12*r.k;
+    r.mf.opacity=fe*0.07*m+0.05*r.k;
+    r.mv.color.lerpColors(CG,CH,Math.max(0,(r.k-0.5)*2));
+  });
+
+  if(focus>=0){
+    var r=rights[focus];
+    proj.copy(r.pos); proj.y+=r.top; proj.project(cam);
+    if(proj.z<1){
+      var W=cb.clientWidth, H=cb.clientHeight;
+      var sx=(proj.x*0.5+0.5)*W, sy=(-proj.y*0.5+0.5)*H;
+      tick.style.display='block'; tick.style.left=sx+'px'; tick.style.top=(sy-14)+'px';
+      lbl.style.display='block'; lbl.style.left=sx+'px'; lbl.style.top=(sy-16)+'px';
+      lbl.style.opacity=r.k.toFixed(2); tick.style.opacity=(r.k*0.7).toFixed(2);
+      lbl.textContent='#'+String(focus).padStart(3,'0')+'  id=0000'+(0x700+focus).toString(16).toUpperCase();
+    }else{tick.style.display='none';lbl.style.display='none';}
+  }else{tick.style.display='none';lbl.style.display='none';}
+
+  ra.render(sa,cam); rb.render(sb,cam);
+  requestAnimationFrame(loop);
+}
+loop();
+})();
+</script>
+</body>
+</html>
