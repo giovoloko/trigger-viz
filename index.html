@@ -38,9 +38,6 @@
         color:var(--hot);opacity:.85;letter-spacing:.02em;pointer-events:none;display:none;
         background:rgba(8,14,10,.7);padding:4px 10px;border-radius:4px;white-space:nowrap;z-index:2}
   .half.steer{cursor:crosshair}
-  .ntag{position:absolute;transform:translate(-50%,-100%);pointer-events:none;display:none;
-        font-size:10px;letter-spacing:.02em;padding:1px 5px;border-radius:3px;
-        background:rgba(8,14,10,.75);border:1px solid;white-space:nowrap}
 
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;padding:2px;flex:none}
   .seg button{appearance:none;border:0;background:transparent;color:var(--mute);
@@ -121,7 +118,6 @@
       <div id="tick"></div>
       <div id="lbl"></div>
       <div class="xh"><i></i><i></i><i></i><i></i></div>
-      <div id="ntags"></div>
     </div>
     <div id="hint">click a view to steer, WASD move, mouse look, shift to sprint, esc to release</div>
   </div>
@@ -165,12 +161,14 @@ target = hit ? hit.box : nearestByViewAngle(pickMeshes, camera)
 focus = lerp(focus, target, 0.14)</code></pre></details>
       </div>
       <div class="row">
-        <label><input type="checkbox" id="t7">Nametags</label>
-        <p class="how">Projects every box's position to screen space each frame and draws a colored label there.</p>
-        <details class="pc"><summary>pseudocode</summary><pre><code>for box in visibleBoxes:
-  pos = project(box.worldPosition, camera)
-  label.style.left = pos.x; label.style.top = pos.y
-  label.style.color = typeColor(box)</code></pre></details>
+        <label><input type="checkbox" id="t7" checked>Nametags</label>
+        <p class="how">The id tag that appears above whichever box currently has focus.</p>
+        <details class="pc"><summary>pseudocode</summary><pre><code>if nametagsEnabled and focus:
+  label.text = focus.id
+  label.position = project(focus.worldPosition, camera)
+  label.visible = true
+else:
+  label.visible = false</code></pre></details>
       </div>
       <div class="row">
         <label><input type="checkbox" id="t8" checked>Type filtering</label>
@@ -287,7 +285,7 @@ boxes.forEach(function(o,idx){
   rights.push({vis:vis,occ:occ,fill:fill,mv:mv,mo:mo,mf:mf,full:full,br:br,pos:vis.position,top:o.h/2,k:0,base:base,dim:dimC,hot:hotC,type:o.type,hex:ty.hex,label:ty.label});
 });
 
-var T={t1:true,t2:true,t3:true,t4:true,t5:true,t6:false,t7:false,t8:true,types:{},solo:{},boxOff:{}};
+var T={t1:true,t2:true,t3:true,t4:true,t5:true,t6:false,t7:true,t8:true,types:{},solo:{},boxOff:{}};
 TYPES.forEach(function(t){ T.types[t.key]=true; T.solo[t.key]=false; });
 
 function typeOn(key){
@@ -312,7 +310,6 @@ var layoutEl=document.querySelector('.layout'), sidebarEl=document.querySelector
     T[id]=e.target.checked;
     if(id==='t2')applyDepth();
     if(id==='t3')rights.forEach(function(r,i){r.fill.visible=T.t3&&boxOn(i);});
-    if(id==='t7')ntagsEl.style.display=T.t7?'block':'none';
     if(id==='t8'){
       applyColoring(); applyVisibility();
       layoutEl.classList.toggle('no-types',!T.t8);
@@ -322,15 +319,6 @@ var layoutEl=document.querySelector('.layout'), sidebarEl=document.querySelector
   });
 });
 applyDepth();
-
-var ntagsEl=document.getElementById('ntags');
-var ntagEls=rights.map(function(r,i){
-  var el=document.createElement('div');
-  el.className='ntag'; el.style.color=r.hex; el.style.borderColor=r.hex;
-  el.textContent=r.label+' '+String(i).padStart(2,'0');
-  ntagsEl.appendChild(el);
-  return el;
-});
 
 var visiblePicks=picks.slice();
 function applyVisibility(){
@@ -517,7 +505,7 @@ function loop(){
       var sx=(proj.x*0.5+0.5)*W, sy=(-proj.y*0.5+0.5)*H;
       tick.style.display='block'; tick.style.left=sx+'px'; tick.style.top=(sy-14)+'px';
       tick.style.background=r.hex;
-      lbl.style.display='block'; lbl.style.left=sx+'px'; lbl.style.top=(sy-16)+'px';
+      lbl.style.display=T.t7?'block':'none'; lbl.style.left=sx+'px'; lbl.style.top=(sy-16)+'px';
       lbl.style.color=r.hex; lbl.style.borderColor=r.hex;
       lbl.style.opacity=r.k.toFixed(2); tick.style.opacity=(r.k*0.7).toFixed(2);
       lbl.textContent='#'+String(focus).padStart(3,'0')+'  id='+boxId(focus);
@@ -525,20 +513,6 @@ function loop(){
   }else{
     tick.style.display='none';lbl.style.display='none';
     xhIs.forEach(function(el){el.style.background='#eafff0';});
-  }
-
-  if(T.t7){
-    var NW=cb.clientWidth, NH=cb.clientHeight;
-    rights.forEach(function(r,i){
-      var el=ntagEls[i];
-      if(!boxOn(i)){ el.style.display='none'; return; }
-      proj.copy(r.pos); proj.y+=r.top; proj.project(cam);
-      if(proj.z<1){
-        el.style.display='block';
-        el.style.left=((proj.x*0.5+0.5)*NW)+'px';
-        el.style.top=((-proj.y*0.5+0.5)*NH-6)+'px';
-      }else{ el.style.display='none'; }
-    });
   }
 
   ra.render(sa,cam); rb.render(sb,cam);
