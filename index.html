@@ -3,21 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Trigger box rendering — before / after</title>
+<title>Trigger box render ideas</title>
 <style>
-  :root{ --bg:#12160f; --panel:#1b211d; --ink:#d7dcd2; --mute:#7f8a7c; --hot:#8dffae; }
+  :root{ --bg:#12160f; --panel:#1b211d; --ink:#d7dcd2; --mute:#7f8a7c; --dim:#566153; --hot:#8dffae; --line:#2b332b; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
        font:15px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-       padding:32px 20px 64px}
+       padding:40px 20px 64px}
   main{max-width:1020px;margin:0 auto}
-  h1{font-size:19px;font-weight:500;letter-spacing:.02em;margin:0 0 4px}
-  .sub{color:var(--mute);font-size:13px;margin:0 0 28px;max-width:62ch}
-  .heads{display:flex;gap:10px;margin-bottom:6px}
-  .heads div{flex:1;font-size:12px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
-  .stage{display:flex;gap:10px}
+  .titlebar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+            flex-wrap:wrap;margin:0 0 24px}
+  h1{font-size:21px;font-weight:500;letter-spacing:.01em;margin:0}
+  .heads{display:flex;gap:10px;margin-bottom:8px}
+  .heads div{flex:1;font-size:11px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
+  .heads div:last-child{color:var(--hot);opacity:.85}
+  .stage{display:flex;gap:10px;position:relative}
   .half{flex:1;min-width:0;position:relative;border-radius:10px;overflow:hidden;
-        border:1px solid #2b332b}
+        border:1px solid var(--line)}
   canvas{width:100%;height:340px;display:block}
   .xh{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:none}
   .xh i{position:absolute;background:#eafff0;opacity:.8}
@@ -29,19 +31,51 @@
        font-size:11px;line-height:1.4;color:#c8ffd8;background:rgba(8,14,10,.78);
        border:1px solid rgba(141,255,174,.35);border-radius:3px;padding:2px 6px;white-space:nowrap}
   #tick{position:absolute;width:1px;height:14px;background:var(--hot);opacity:.7;pointer-events:none;display:none}
-  .ctl{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-size:13px;color:var(--mute)}
-  .ctl label{display:flex;gap:7px;align-items:center;cursor:pointer}
+  #hint{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:11px;
+        color:var(--hot);opacity:.85;letter-spacing:.02em;pointer-events:none;display:none;
+        background:rgba(8,14,10,.7);padding:4px 10px;border-radius:4px;white-space:nowrap;z-index:2}
+  .half.steer{cursor:crosshair}
+
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;padding:2px;flex:none}
+  .seg button{appearance:none;border:0;background:transparent;color:var(--mute);
+              font:inherit;font-size:12.5px;padding:6px 14px;border-radius:6px;cursor:pointer}
+  .seg button.active{background:#1f4d2d;color:var(--hot)}
+
+  .panel{margin-top:24px;border:1px solid var(--line);border-radius:10px;background:var(--panel);
+         padding:20px}
+  .panel h2{font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;
+            color:var(--mute);margin:0 0 16px}
+  .ctl{display:grid;grid-template-columns:repeat(5,1fr);gap:16px 20px}
+  @media (max-width:1080px){ .ctl{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))} }
+  .ctl .row{border-top:1px solid var(--line);padding-top:12px;position:relative}
+  .ctl label{display:flex;gap:8px;align-items:center;cursor:pointer;font-size:13px;color:var(--ink)}
   .ctl input{accent-color:#3be05a}
-  footer{margin-top:36px;font-size:12px;color:var(--mute);max-width:62ch}
+  .ctl .how{margin:8px 0 0 22px;font-size:12px;line-height:1.5;color:var(--dim)}
+
+  .pc{margin-top:8px}
+  .pc summary{cursor:pointer;font-size:11px;color:var(--mute);list-style:none}
+  .pc summary::-webkit-details-marker{display:none}
+  .pc summary::before{content:"+ "}
+  .pc[open] summary::before{content:"\2212 "}
+  .pc pre{margin:8px 0 0;padding:12px 16px;background:#0e120d;border:1px solid var(--line);
+          border-radius:6px;font-size:11.5px;line-height:1.55;color:#9fd6ab;
+          white-space:pre-wrap;word-break:break-word;
+          position:absolute;left:0;top:calc(100% + 8px);width:max-content;max-width:min(340px,90vw);
+          z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .row:last-child .pc pre{left:auto;right:0}
+
   @media (max-width:720px){ .stage,.heads{flex-direction:column} canvas{height:260px} }
 </style>
 </head>
 <body>
 <main>
-  <h1>Trigger box rendering</h1>
-  <p class="sub">Left: every edge drawn at uniform weight, always on top — the usual debug overlay.
-     Right: corner brackets, a dim ghost pass for occluded edges, face fill, distance fade,
-     and a crosshair that focuses the nearest box and labels it.</p>
+  <div class="titlebar">
+    <h1>Trigger box render ideas</h1>
+    <div class="seg" id="camseg">
+      <button type="button" class="active" data-mode="orbit">Orbit mode</button>
+      <button type="button" data-mode="manual">Manual camera</button>
+    </div>
+  </div>
 
   <div class="heads"><div>before</div><div>after</div></div>
   <div class="stage">
@@ -52,18 +86,49 @@
       <div id="lbl"></div>
       <div class="xh"><i></i><i></i><i></i><i></i></div>
     </div>
+    <div id="hint">click a view to steer, WASD move, mouse look, shift to sprint, esc to release</div>
   </div>
 
-  <div class="ctl">
-    <label><input type="checkbox" id="t5" checked>Focus crosshair</label>
-    <label><input type="checkbox" id="t1" checked>Corner brackets</label>
-    <label><input type="checkbox" id="t2" checked>Depth-aware</label>
-    <label><input type="checkbox" id="t3" checked>Face fill</label>
-    <label><input type="checkbox" id="t4" checked>Distance fade</label>
+  <div class="panel">
+    <h2>Toggles</h2>
+    <div class="ctl">
+      <div class="row">
+        <label><input type="checkbox" id="t1" checked>Corner brackets</label>
+        <p class="how">Short segments from each corner instead of full edges, same read, less ink.</p>
+        <details class="pc"><summary>pseudocode</summary><pre><code>for corner in box.corners:      // 8 total
+  for axis in [x, y, z]:
+    drawSegment(corner, corner - axis * edgeLen * 0.16)</code></pre></details>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="t3" checked>Face fill</label>
+        <p class="how">A 7% opacity mesh over the box so occluded volume reads at a glance.</p>
+        <details class="pc"><summary>pseudocode</summary><pre><code>fill = Mesh(box.geometry, material)
+material.transparent = true
+material.opacity = 0.07
+scene.add(fill)</code></pre></details>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="t4" checked>Distance fade</label>
+        <p class="how">Opacity scales with distance, floored so far boxes never fully vanish.</p>
+        <details class="pc"><summary>pseudocode</summary><pre><code>d = distance(box.position, camera.position)
+opacity = clamp(1 - (d - nearDist) / fadeRange, floor, 1)</code></pre></details>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="t2" checked>Depth-aware</label>
+        <p class="how">Edges drawn twice, normal depth test, plus a dim pass for the occluded ones.</p>
+        <details class="pc"><summary>pseudocode</summary><pre><code>drawEdges(box, depthTest: LEQUAL, opacity: 1.0)   // visible
+drawEdges(box, depthTest: GREATER, opacity: 0.2)  // ghost pass</code></pre></details>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="t5" checked>Focus on crosshair</label>
+        <p class="how">Raycasts from screen center each frame, nearest box wins, smoothed so it doesn't snap.</p>
+        <details class="pc"><summary>pseudocode</summary><pre><code>ray = cameraRayThroughScreenCenter()
+hit = raycast(ray, pickMeshes)
+target = hit ? hit.box : nearestByViewAngle(pickMeshes, camera)
+focus = lerp(focus, target, 0.14)</code></pre></details>
+      </div>
+    </div>
   </div>
-
-  <footer>Line width is faked here — WebGL ignores linewidth, so the dark outline pass
-    needs Line2 or a screen-space quad shader. In a native renderer it's free.</footer>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -132,10 +197,11 @@ boxes.forEach(function(o,idx){
   rights.push({vis:vis,occ:occ,fill:fill,mv:mv,mo:mo,mf:mf,full:full,br:br,pos:vis.position,top:o.h/2,k:0});
 });
 
-var T={t1:true,t2:true,t3:true,t4:true,t5:true};
+var T={t1:true,t2:true,t3:true,t4:true,t5:true,t6:false};
 function applyDepth(){
   rights.forEach(function(r){ r.mv.depthTest=T.t2; r.mf.depthTest=T.t2; r.occ.visible=T.t2; });
 }
+var hint=document.getElementById('hint');
 ['t1','t2','t3','t4','t5'].forEach(function(id){
   document.getElementById(id).addEventListener('change',function(e){
     T[id]=e.target.checked;
@@ -144,6 +210,41 @@ function applyDepth(){
   });
 });
 applyDepth();
+
+var camseg=document.getElementById('camseg');
+camseg.querySelectorAll('button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    T.t6=(btn.dataset.mode==='manual');
+    camseg.querySelectorAll('button').forEach(function(b){b.classList.toggle('active',b===btn);});
+    ca.classList.toggle('steer',T.t6); cb.classList.toggle('steer',T.t6);
+    hint.style.display=T.t6?'block':'none';
+    if(!T.t6&&document.pointerLockElement)document.exitPointerLock();
+  });
+});
+
+// manual FPS-style camera — shared by both views since they render the same `cam`
+var manualPos=new THREE.Vector3(0,17,34), yaw=0, pitch=0;
+(function(){
+  var o=new THREE.Object3D(); o.position.copy(manualPos); o.lookAt(0,3,0); o.rotation.order='YXZ';
+  yaw=o.rotation.y; pitch=o.rotation.x;
+})();
+var keys={}, locked=false, mfwd=new THREE.Vector3(), mright=new THREE.Vector3(), mmove=new THREE.Vector3();
+[ca,cb].forEach(function(el){
+  el.addEventListener('click',function(){ if(T.t6)el.requestPointerLock(); });
+});
+document.addEventListener('pointerlockchange',function(){
+  locked=(document.pointerLockElement===ca||document.pointerLockElement===cb);
+});
+document.addEventListener('mousemove',function(e){
+  if(!locked)return;
+  yaw-=e.movementX*0.0022; pitch-=e.movementY*0.0022;
+  pitch=Math.max(-1.5,Math.min(1.5,pitch));
+});
+addEventListener('keydown',function(e){
+  keys[e.code]=true;
+  if(T.t6&&['KeyW','KeyA','KeyS','KeyD','Space'].indexOf(e.code)>=0)e.preventDefault();
+});
+addEventListener('keyup',function(e){ keys[e.code]=false; });
 
 var ray=new THREE.Raycaster(), ctr=new THREE.Vector2(0,0);
 var fwd=new THREE.Vector3(), toBox=new THREE.Vector3(), proj=new THREE.Vector3();
@@ -156,11 +257,35 @@ function size(){
 }
 addEventListener('resize',size); size();
 
-var a=0;
+var a=0, last=performance.now();
 function loop(){
-  a+=0.0022;
-  cam.position.set(Math.sin(a)*34,17,Math.cos(a)*34);
-  cam.lookAt(0,3,0); cam.updateMatrixWorld();
+  var now=performance.now(), dt=Math.min(0.05,(now-last)/1000); last=now;
+
+  if(T.t6){
+    cam.rotation.order='YXZ'; cam.rotation.set(pitch,yaw,0);
+    cam.getWorldDirection(mfwd);
+    mright.set(1,0,0).applyQuaternion(cam.quaternion);
+    mmove.set(0,0,0);
+    if(keys.KeyW)mmove.add(mfwd);
+    if(keys.KeyS)mmove.sub(mfwd);
+    if(keys.KeyD)mmove.add(mright);
+    if(keys.KeyA)mmove.sub(mright);
+    if(keys.Space)mmove.y+=1;
+    if(keys.ControlLeft||keys.ControlRight)mmove.y-=1;
+    if(mmove.lengthSq()>0){
+      var speed=(keys.ShiftLeft||keys.ShiftRight)?34:16;
+      mmove.normalize().multiplyScalar(speed*dt);
+      manualPos.add(mmove);
+    }
+    cam.position.copy(manualPos);
+  }else{
+    a+=0.0022;
+    cam.position.set(Math.sin(a)*34,17,Math.cos(a)*34);
+    cam.lookAt(0,3,0);
+    manualPos.copy(cam.position);
+    var o=cam.rotation; yaw=o.y; pitch=o.x;
+  }
+  cam.updateMatrixWorld();
 
   var want=-1;
   if(T.t5){
